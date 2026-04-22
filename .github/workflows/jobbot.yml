@@ -1,0 +1,102 @@
+name: jobbot
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: jobbot-monitor
+  cancel-in-progress: false
+
+env:
+  CONFIG_PATH: configs/config.yaml
+  STATE_BRANCH: state
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Restore state database from state branch
+        env:
+          REMOTE_URL: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+        run: |
+          mkdir -p data
+          tmpdir="$(mktemp -d)"
+          git init "$tmpdir/state" >/dev/null 2>&1
+          cd "$tmpdir/state"
+          git remote add origin "$REMOTE_URL"
+          if git fetch --depth=1 origin "$STATE_BRANCH" >/dev/null 2>&1; then
+            git checkout -B "$STATE_BRANCH" FETCH_HEAD >/dev/null 2>&1
+            if [ -f data/jobbot.db ]; then
+              cp data/jobbot.db "$GITHUB_WORKSPACE/data/jobbot.db"
+            fi
+          fi
+
+      - name: Run monitor
+        env:
+          DISCORD_WEBHOOK_URL_L3: ${{ secrets.DISCORD_WEBHOOK_URL_L3 }}
+          DISCORD_WEBHOOK_URL_L4: ${{ secrets.DISCORD_WEBHOOK_URL_L4 }}
+        run: |
+          JOBBOT_CONFIG="$CONFIG_PATH" python -m jobbot
+
+      - name: Persist state database to state branch
+        if: always()
+        env:
+          REMOTE_URL: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+        run: |
+          if [ ! -f data/jobbot.db ]; then
+            exit 0
+          fi
+
+          tmpdir="$(mktemp -d)"
+          git init "$tmpdir/state" >/dev/null 2>&1
+          cd "$tmpdir/state"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "$REMOTE_URL"
+
+          if git fetch --depth=1 origin "$STATE_BRANCH" >/dev/null 2>&1; then
+            git checkout -B "$STATE_BRANCH" FETCH_HEAD >/dev/null 2>&1
+          else
+            git checkout --orphan "$STATE_BRANCH" >/dev/null 2>&1
+          fi
+
+          find . -mindepth 1 -maxdepth 1 ! -name ".git" -exec rm -rf {} +
+          mkdir -p data
+          cp "$GITHUB_WORKSPACE/data/jobbot.db" data/jobbot.db
+          cat > README.md <<'EOF'
+          # jobbot state
+
+          This branch is managed by the scheduled GitHub Actions workflow.
+          It stores the SQLite state database used for dedupe and close detection.
+          EOF
+
+          git add README.md data/jobbot.db
+
+          if git diff --cached --quiet; then
+            echo "No state changes to commit."
+            exit 0
+          fi
+
+          git commit -m "Update jobbot state"
+          git push origin "HEAD:${STATE_BRANCH}"

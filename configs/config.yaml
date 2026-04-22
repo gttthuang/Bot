@@ -1,0 +1,47 @@
+settings:
+  database_path: ../data/jobbot.db
+  close_after_missing_runs: 3
+  request_timeout_seconds: 30
+  user_agent: "jobbot/0.1 (public GitHub Actions monitor; keep request volume low)"
+
+sources:
+  - name: google_early_tw_software_engineer
+    provider: google_careers
+    company: Google
+    urls:
+      - "https://www.google.com/about/careers/applications/jobs/results/?employment_type=FULL_TIME&degree=BACHELORS&q=%22Software+Engineer%22&target_level=EARLY&location=Taiwan"
+
+  - name: google_early_cn_software_engineer
+    provider: google_careers
+    company: Google
+    urls:
+      - "https://www.google.com/about/careers/applications/jobs/results/?employment_type=FULL_TIME&degree=BACHELORS&q=%22Software+Engineer%22&target_level=EARLY&location=China"
+
+  - name: google_mid_tw_software_engineer
+    provider: google_careers
+    company: Google
+    urls:
+      - "https://www.google.com/about/careers/applications/jobs/results/?employment_type=FULL_TIME&degree=BACHELORS&q=%22Software+Engineer%22&target_level=MID&location=Taiwan"
+
+  - name: google_mid_cn_software_engineer
+    provider: google_careers
+    company: Google
+    urls:
+      - "https://www.google.com/about/careers/applications/jobs/results/?employment_type=FULL_TIME&degree=BACHELORS&q=%22Software+Engineer%22&target_level=MID&location=China"
+
+subscriptions:
+  - name: google_l3_tw_cn
+    source_names:
+      - google_early_tw_software_engineer
+      - google_early_cn_software_engineer
+    experience_include: ["early"]
+    notify_events: ["job_created", "job_updated", "job_closed"]
+    webhook_url_env: DISCORD_WEBHOOK_URL_L3
+
+  - name: google_l4_tw_cn
+    source_names:
+      - google_mid_tw_software_engineer
+      - google_mid_cn_software_engineer
+    experience_include: ["mid"]
+    notify_events: ["job_created", "job_updated", "job_closed"]
+    webhook_url_env: DISCORD_WEBHOOK_URL_L4
